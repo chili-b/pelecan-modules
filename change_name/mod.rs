@@ -61,9 +61,10 @@ pub fn change_name<Data>(_t: DataMutex<Data>, mut c: Client, e: &Event) -> Futur
                 };
                 drop(c.text_message_send(error_message).await);
             }
+            // If the user is changing their nickname, no further parsing should be done on
+            // the message regardless of whether or not the name was valid.
+            return false;
         }
-        // If the user is changing their nickname, no further parsing should be done on
-        // the message regardless of whether or not the name was valid.
-        false
+        true
     })
 }

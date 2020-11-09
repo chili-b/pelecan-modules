@@ -1,0 +1,9 @@
+# Allows registered users to change their names
+
+user_text_message=(
+'change_name'
+)
+
+dependencies=(
+'regex = "1.4.2"'
+)

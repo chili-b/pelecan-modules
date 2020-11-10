@@ -23,8 +23,8 @@ pub fn text_message(t: DataMutex<Data>, mut c: Client, e: &Event) -> FutureBool 
                     users: vec![user],
                     text: Some("<br/>!mail commands:<ul> \
                                <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
-                <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
-                <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
+                               <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
+                               <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
                     channels: vec![], trees: vec![], actor: None
                 }).await);
                 false

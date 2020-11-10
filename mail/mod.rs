@@ -22,9 +22,9 @@ pub fn text_message(t: DataMutex<Data>, mut c: Client, e: &Event) -> FutureBool 
                     server: server,
                     users: vec![user],
                     text: Some("<br/>!mail commands:<ul> \
-                               <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
-                <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
-                <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
+                                <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
+                                <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
+                                <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
                     channels: vec![], trees: vec![], actor: None
                 }).await);
                 false
@@ -110,7 +110,7 @@ fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
                         server: server,
                         users: vec![user],
                         text: Some(format!(
-                                "Message sent to <b><span style=\"color:#55aa7f\">{}</span></b>'s mailbox", 
+                                "Message sent to <b><span style=\"color:#00aa7f\">{}</span></b>'s mailbox", 
                                 recipient)),
                         channels: vec![], trees: vec![], actor: None
                     };
@@ -121,7 +121,7 @@ fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
                         server: server,
                         users: vec![user],
                         text: Some(format!(
-                                "<b><span style=\"color:#55aa7f\">{}</span></b>'s mailbox is full so your message was not delivered", 
+                                "<b><span style=\"color:#00aa7f\">{}</span></b>'s mailbox is full so your message was not delivered", 
                                 recipient)),
                         channels: vec![], trees: vec![], actor: None
                     };

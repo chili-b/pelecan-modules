@@ -1,0 +1,13 @@
+# Adds emote support to mumble chat. Unfortunately it is not possible to see emotes in your own messages due to how mumble works
+
+chat_filters=(
+'chat_filter'
+)
+
+volatile_data=(
+'emote_cache: super::emotes::EmoteCache = super::emotes::EmoteCache::new()'
+)
+
+dependencies=(
+'regex = "1.4.2"'
+)

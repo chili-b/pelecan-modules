@@ -8,3 +8,5 @@
   * send a list of registered user names when `!users` is sent to the chat.
 * convenience: 
   * (WIP) a module that does not do anything by itself, but contains helper function for common tasks.
+* emotes:
+  * Adds support to the mumble chat for image and text emotes

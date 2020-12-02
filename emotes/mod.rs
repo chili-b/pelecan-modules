@@ -17,7 +17,7 @@ const MAX_EMOTES_PER_MESSAGE: usize = 5;
 const EMOTE_HEIGHT: u8 = 25;
 const EMOTE_DELIMITER: char = ':';
 // restrictions on what constitutes a valid emote name
-const EMOTE_REGEX: &'static str = r"[a-z0-9]+";
+const EMOTE_REGEX: &'static str = r"^[a-z0-9]+$";
 
 #[derive(Clone)]
 pub struct EmoteCache {
@@ -131,8 +131,10 @@ pub fn chat_filter(mut t: DataMutex<Data>, _c: Client, filter: &mut Filter) -> F
                             new_message.push_str(&emote);
                         }
                         start_index = index + 1;
-                        break;
+                    } else {
+                        new_message.push_str(&text[start_index..(index+1)]);
                     }
+                    break;
                 }
             }
             if num_emotes > MAX_EMOTES_PER_MESSAGE {
@@ -141,7 +143,6 @@ pub fn chat_filter(mut t: DataMutex<Data>, _c: Client, filter: &mut Filter) -> F
             new_message.push_str(&text[start_index..(end_index + 1)])
         }
     }
-    new_message.push_str(&text[start_index..]);
 
     if num_emotes <= MAX_EMOTES_PER_MESSAGE && num_emotes != 0 {
         let mut text_message = filter.message.as_ref().unwrap().to_owned();

@@ -1,41 +1,56 @@
 use crate::{server::Event, DataMutex, Client, FutureBool, future_from_async, Persistent, future_from_bool, Server, User, TextMessage, DatabaseUser};
+use crate::text_message::{Filter, filter::Action};
 use crate::database_user::Query;
 use super::Data;
 use confy::ConfyError;
 use serde_derive::{Serialize, Deserialize};
+use std::path::PathBuf;
+use rand::Rng;
 
 const MAX_MESSAGES: usize = 5;
 
-pub fn text_message(t: DataMutex<Data>, mut c: Client, e: &Event) -> FutureBool {
-    let e = e.to_owned();
-    if e.message.is_none() || e.server.is_none() || e.user.is_none() || e.user.as_ref().unwrap().id.is_none() {
+pub fn chat_filter(t: DataMutex<Data>, mut c: Client, filter: &mut Filter) -> FutureBool {
+    if filter.message.is_none() || filter.server.is_none() {
         return future_from_bool(true);
     }
-    let text = e.message.unwrap().text().to_owned();
-    let user = e.user.unwrap();
+    let text = filter.message.as_ref().unwrap().text().to_owned();
+    if filter.message.as_ref().unwrap().actor.is_none() {
+        return future_from_bool(true);
+    }
+    let mut user = filter.message.as_ref().unwrap().actor.as_ref().unwrap().to_owned();
     if text.starts_with("!mail") {
-        let words: Vec<&str> = text.split(" ").collect();
-        if words.len() < 2 {
-            let server = e.server.clone();
-            return future_from_async(async move {
+        filter.set_action(Action::Drop);
+        let filter = filter.to_owned();
+        return future_from_async(async move {
+            // for whatever reason, user id is not available to the filter stream, so we have to do
+            // a database query... very stupid, but that's the way it is.
+            user = if let Ok(user) = c.user_get(user).await {
+                user.into_inner()
+            } else {
+                return false;
+            };
+            let words: Vec<&str> = text.split(" ").collect();
+            if words.len() < 2 {
+                let server = filter.server.clone();
                 drop(c.text_message_send(TextMessage {
                     server: server,
                     users: vec![user],
                     text: Some("<br/>!mail commands:<ul> \
-                                <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
+                               <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
                                 <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
                                 <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
-                    channels: vec![], trees: vec![], actor: None
+                                channels: vec![], trees: vec![], actor: None
                 }).await);
                 false
-            })
-        }
-        return match words[1] {
-            "send" => send_message(c, t, e.server, user, text[10..].to_owned()),
-            "read" => read_message(c, t, e.server, user, text[10..].to_owned()),
-            "delete" => delete_message(c, t, e.server, user, text[12..].to_owned()),
-            _ => future_from_bool(true)
-        };
+            } else {
+                match words[1] {
+                    "send" => send_message(c, t, filter.server.to_owned(), user, text[10..].to_owned()).await,
+                    "read" => read_message(c, t, filter.server.to_owned(), user, text[10..].to_owned()).await,
+                    "delete" => delete_message(c, t, filter.server.to_owned(), user, text[12..].to_owned()).await,
+                    _ => false
+                }
+            }
+        });
     }
     future_from_bool(true)
 }
@@ -48,9 +63,9 @@ pub fn user_connected(mut t: DataMutex<Data>, mut c: Client, e: &Event) -> Futur
     let user = e.user.unwrap();
     let server = e.server.clone();
     future_from_async(async move { 
-        let server_name = &t.lock_async().await.name;
-        let mailbox = load_mailbox(user.id(), server_name);
-        if !mailbox.messages.is_empty() {
+        let server_path = &t.lock_async().await.path;
+        let mailbox = load_mailbox(user.id(), server_path);
+        if mailbox.messages.iter().any(|msg| msg.0) { // if at least one message is unread
             drop(c.text_message_send(TextMessage {
                 server: server.clone(),
                 users: vec![user],
@@ -65,11 +80,14 @@ pub fn user_connected(mut t: DataMutex<Data>, mut c: Client, e: &Event) -> Futur
 fn delete_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureBool {
     let message = message.trim().to_owned();
     future_from_async(async move {
-        let server_name = &t.lock_async().await.name;
-        let mut mailbox = load_mailbox(user.id(), server_name);
+        let server_path = &t.lock_async().await.path;
+        let mut mailbox = load_mailbox(user.id(), server_path);
         if message.len() == 0 {
+            for message in mailbox.messages.iter() {
+                drop(std::fs::remove_file(message_path(server_path, mailbox.owner, message.2)));
+            }
             mailbox.messages = vec![];
-            drop(store_mailbox(&mailbox, server_name));
+            drop(store_mailbox(&mailbox, server_path));
             drop(c.text_message_send(TextMessage {
                 server: server,
                 users: vec![user],
@@ -78,8 +96,10 @@ fn delete_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>,
             }).await);
             false
         } else if let Ok(index) = message.parse::<usize>() {
-            if mailbox.remove_message(index) {
-                drop(store_mailbox(&mailbox, server_name));
+            if index < mailbox.messages.len() {
+                let message = mailbox.messages.remove(index);
+                drop(std::fs::remove_file(message_path(server_path, mailbox.owner, message.2)));
+                drop(store_mailbox(&mailbox, server_path));
                 drop(c.text_message_send(TextMessage {
                     server: server,
                     users: vec![user],
@@ -93,6 +113,7 @@ fn delete_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>,
         }
     })
 }
+
 fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureBool {
     let message = message.trim_start();
     if let Some(index) = message.find(" ") {
@@ -100,12 +121,12 @@ fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
         let recipient = recipient.to_owned();
         let message = message.trim().to_owned();
         return future_from_async(async move {
-            let server_name = t.lock_async().await.name.to_owned();
+            let server_path = t.lock_async().await.path.to_owned();
             if let Some(recipient_id) = user_id_from_name(c.clone(), server.clone(), &recipient).await {
-                let mut mailbox = load_mailbox(recipient_id, &server_name);
+                let mut mailbox = load_mailbox(recipient_id, &server_path);
                 mailbox.owner = recipient_id; // if the mailbox is newly created, it will have the wrong owner id.
                 let message = Message::new(user.id(), message.to_string());
-                if mailbox.add_message(&server_name, message) {
+                if mailbox.add_message(&server_path, message) {
                     let success_message = TextMessage {
                         server: server,
                         users: vec![user],
@@ -114,7 +135,7 @@ fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
                                 recipient)),
                         channels: vec![], trees: vec![], actor: None
                     };
-                    drop(store_mailbox(&mailbox, &server_name));
+                    drop(store_mailbox(&mailbox, &server_path));
                     drop(c.text_message_send(success_message).await);
                 } else {
                     let error_message = TextMessage {
@@ -147,11 +168,11 @@ fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
 fn read_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureBool {
     let message = message.trim().to_owned();
     future_from_async(async move {
-        let server_name = &t.lock_async().await.name;
-        let mut mailbox = load_mailbox(user.id(), server_name);
+        let server_path = &t.lock_async().await.path;
+        let mut mailbox = load_mailbox(user.id(), server_path);
         mailbox.owner = user.id(); // if the mailbox is newly created, it will have the wrong id.
         if let Ok(index) = message.parse::<usize>() {
-            if let Some(message) = mailbox.read_message(server_name, index) {
+            if let Some(message) = mailbox.read_message(server_path, index) {
                 let text_message = TextMessage {
                     server: server.clone(),
                     users: vec![user],
@@ -159,7 +180,7 @@ fn read_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, u
                     channels: vec![], trees: vec![], actor: None
                 };
                 drop(c.text_message_send(text_message).await);
-                drop(store_mailbox(&mailbox, server_name));
+                store_mailbox(&mailbox, server_path).unwrap();
             }
         } else {
             let mailbox_message = TextMessage {
@@ -218,30 +239,26 @@ async fn mailbox_string(c: Client, server: Option<Server>, mailbox: Mailbox) -> 
         }
         mailbox_string.push_str(&mailbox_entry);
     }
-    mailbox_string.push_str("<sup>To read a specific message, type <b>!mail read [number]</b></sup></tt>");
+    mailbox_string.push_str("<br/><sup>type <b>!mail</b> for instructions</sup></tt>");
     mailbox_string
 }
 
-fn load_mailbox(owner: u32, server_name: &str) -> Mailbox {
-    Mailbox::load(&mailbox_name(server_name, owner))
+fn load_mailbox(owner: u32, server_path: &PathBuf) -> Mailbox {
+    Mailbox::load(server_path.join(format!("mailboxes/{}/mailbox.toml", owner)))
 }
 
-fn store_mailbox(mailbox: &Mailbox, server_name: &str) -> Result<(), ConfyError> {
-    mailbox.store(&mailbox_name(server_name, mailbox.owner))
+fn store_mailbox(mailbox: &Mailbox, server_path: &PathBuf) -> Result<(), ConfyError> {
+    mailbox.store(server_path.join(format!("mailboxes/{}/mailbox.toml", mailbox.owner)))
 }
 
-fn message_name(server_name: &str, owner: u32, num: usize) -> String {
-    format!("pelecan_message_{}_{}_{}", server_name, owner, num)
-}
-
-fn mailbox_name(server_name: &str, owner: u32) -> String {
-    format!("pelecan_mailbox_{}_{}", server_name, owner)
+fn message_path(server_path: &PathBuf, owner: u32, name: u32) -> PathBuf {
+    server_path.join(format!("mailboxes/{}/message_{}.toml", owner, name))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Mailbox {
     owner: u32,
-    messages: Vec<(bool, u32, String)>
+    messages: Vec<(bool, u32, u32)>
 }
 
 impl Persistent for Mailbox {}
@@ -260,28 +277,21 @@ impl Mailbox {
         }
     }
 
-    pub fn add_message(&mut self, server_name: &str, message: Message) -> bool {
+    pub fn add_message(&mut self, server_path: &PathBuf, message: Message) -> bool {
         if self.messages.len() > MAX_MESSAGES {
             return false;
         }
-        let message_name = message_name(server_name, self.owner, self.messages.len());
-        self.messages.push((true, message.sender, message_name.clone()));
-        drop(message.store(&message_name));
+        let message_name = message.unique_message_name(self.owner, server_path);
+        let message_path = message_path(server_path, self.owner, message_name);
+        self.messages.push((true, message.sender, message_name));
+        drop(message.store(&message_path));
         true
     }
 
-    pub fn remove_message(&mut self, index: usize) -> bool {
-        if index >= self.messages.len() {
-            return false;
-        }
-        self.messages.remove(index);
-        true
-    }
-
-    pub fn read_message(&mut self, server_name: &str, index: usize) -> Option<Message> {
+    pub fn read_message(&mut self, server_path: &PathBuf, index: usize) -> Option<Message> {
         if let Some(message) = self.messages.get_mut(index) {
             message.0 = false;
-            return Some(Message::load(&message_name(server_name, self.owner, index)));
+            return Some(Message::load(&message_path(server_path, self.owner, message.2)));
         }
         None
     }
@@ -309,5 +319,14 @@ impl Message {
             is_unread: true,
             contents: contents
         }
+    }
+
+    pub fn unique_message_name(&self, owner: u32, server_path: &PathBuf) -> u32 {
+        let mut rng = rand::thread_rng();
+        let mut name = 0;
+        while message_path(server_path, owner, name).exists() {
+            name = rng.gen::<u32>();
+        }
+        name
     }
 }

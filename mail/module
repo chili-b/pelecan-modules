@@ -1,6 +1,9 @@
-user_text_message=(
-'text_message'
+chat_filters=(
+'chat_filter'
 )
 user_connected=(
 'user_connected'
+)
+dependencies=(
+'rand = "0.7.3"'
 )

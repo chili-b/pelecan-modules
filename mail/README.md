@@ -20,3 +20,5 @@ Type `!mail` to see this help in mumble
 - `!mail read <number>` - displays a specific message from your mailbox
 - `!mail delete` - empties your mailbox
 - `!mail delete <number>` - deletes a specific message from your mailbox
+
+<img src="Screenshot from 2020-12-03 14-36-21.png"/>

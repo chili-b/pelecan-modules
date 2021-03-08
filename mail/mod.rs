@@ -1,21 +1,20 @@
-use crate::{server::Event, DataMutex, Client, FutureBool, future_from_async, Persistent, future_from_bool, Server, User, TextMessage, DatabaseUser};
-use crate::text_message::{Filter, filter::Action};
-use crate::database_user::Query;
+use crate::{Server_Event, V1Client, FutureValue, future, Server, User, TextMessage, DatabaseUser, DatabaseUser_Query, TextMessage_Filter, TextMessage_Filter_Action};
 use super::Data;
 use confy::ConfyError;
 use serde_derive::{Serialize, Deserialize};
 use std::path::PathBuf;
 use rand::Rng;
+use std::sync::{Arc, Mutex};
 
 const MAX_MESSAGES: usize = 5;
 
-pub fn chat_filter(t: DataMutex<Data>, mut c: Client, filter: &mut Filter) -> FutureBool {
+pub fn chat_filter<T>(_t: Arc<Mutex<T>>, mut c: V1Client, filter: mut TextMessage_Filter) -> FutureValue<(bool, TextMessage_Filter)> {
     if filter.message.is_none() || filter.server.is_none() {
-        return future_from_bool(true);
+        return future(true);
     }
     let text = filter.message.as_ref().unwrap().text().to_owned();
     if filter.message.as_ref().unwrap().actor.is_none() {
-        return future_from_bool(true);
+        return future(true);
     }
     let mut user = filter.message.as_ref().unwrap().actor.as_ref().unwrap().to_owned();
     if text.starts_with("!mail") {
@@ -29,16 +28,19 @@ pub fn chat_filter(t: DataMutex<Data>, mut c: Client, filter: &mut Filter) -> Fu
             } else {
                 return false;
             };
+            if user.id.is_none() {
+                return true;
+            }
             let words: Vec<&str> = text.split(" ").collect();
             if words.len() < 2 {
                 let server = filter.server.clone();
                 drop(c.text_message_send(TextMessage {
                     server: server,
                     users: vec![user],
-                    text: Some("<br/>!mail commands:<ul> \
-                               <li>send [recipient] [message] (Send a message to the user with the given name.)</li> \
-                                <li>read [number] (Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
-                                <li>delete [number] (Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
+                    text: Some("<br/><h3>📨 !mail commands:</h3><ul> \
+                               <li><tt>!mail send <b>recipient</b> <b>message</b></tt><br/>(Send a <b>message</b> to the user with the given name.)</li> \
+                                <li><tt>!mail read <b>number</b></tt><br/>(Read a message. Typing <tt>!mail read</tt> without a number will open your mailbox.)</li> \
+                                <li><tt>!mail delete <b>number</b></tt><br/>(Delete a message. Typing <tt>!mail delete</tt> without a number will empty your mailbox.)</li></ul>".to_string()),
                                 channels: vec![], trees: vec![], actor: None
                 }).await);
                 false
@@ -55,7 +57,7 @@ pub fn chat_filter(t: DataMutex<Data>, mut c: Client, filter: &mut Filter) -> Fu
     future_from_bool(true)
 }
 
-pub fn user_connected(mut t: DataMutex<Data>, mut c: Client, e: &Event) -> FutureBool {
+pub fn user_connected(t: Arc<Mutex<Data>>, mut c: Client, e: &Server_Event) -> FutureValue<bool> {
     let e = e.to_owned();
     if e.user.is_none() || e.user.as_ref().unwrap().id.is_none() {
         return future_from_bool(true);
@@ -77,7 +79,7 @@ pub fn user_connected(mut t: DataMutex<Data>, mut c: Client, e: &Event) -> Futur
     })
 }
 
-fn delete_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureBool {
+fn delete_message(mut c: Client, mut t: Arc<Mutex<Data>>, server: Option<Server>, user: User, message: String) -> FutureValue<bool> {
     let message = message.trim().to_owned();
     future_from_async(async move {
         let server_path = &t.lock_async().await.path;
@@ -114,7 +116,7 @@ fn delete_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>,
     })
 }
 
-fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureBool {
+fn send_message(mut c: Client, mut t: DataMutex<Data>, server: Option<Server>, user: User, message: String) -> FutureValue<bool> {
     let message = message.trim_start();
     if let Some(index) = message.find(" ") {
         let (recipient, message) = message.trim_start().split_at(index);
@@ -220,13 +222,13 @@ async fn user_name_from_id(mut c: Client, server: Option<Server>, id: u32) -> Op
 
 async fn message_string(c: Client, server: Option<Server>, message: Message) -> Option<String> {
     if let Some(name) = user_name_from_id(c, server, message.sender).await {
-        return Some(format!("<h3>From: {}</h3>{}", name, message.contents));
+        return Some(format!("<h3>✉️ From: {}</h3>{}", name, message.contents));
     }
     None
 }
 
 async fn mailbox_string(c: Client, server: Option<Server>, mailbox: Mailbox) -> String {
-    let mut mailbox_string = "<tt><h3>Your Mailbox:</h3>".to_string();
+    let mut mailbox_string = "<tt><h3>📬 Your Mailbox:</h3>".to_string();
     for (index, message) in mailbox.messages.iter().enumerate() {
         let sender = if let Some(name) = user_name_from_id(c.clone(), server.clone(), message.1).await {
             name

@@ -1,4 +1,4 @@
-use crate::{Server_Event, V1Client, FutureValue, future, Server, User, TextMessage, DatabaseUser, DatabaseUser_Query, TextMessage_Filter, TextMessage_Filter_Action};
+use crate::{Server_Event, V1Client, FutureValue, future, Server, User, TextMessage, DatabaseUser, DatabaseUser_Query, TextMessage_Filter, TextMessage_Filter_Action, Persistent};
 use super::Data;
 use confy::ConfyError;
 use serde_derive::{Serialize, Deserialize};

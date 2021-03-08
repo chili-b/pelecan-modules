@@ -187,13 +187,11 @@ fn read_message(mut c: V1Client, mut t: Arc<Mutex<Data>>, server: Option<Server>
                 store_mailbox(&mailbox, server_path).unwrap();
             }
         } else {
-            let mailbox_message = TextMessage {
-                server: server.clone(),
-                users: vec![user],
-                text: Some(mailbox_string(c.clone(), server, mailbox).await),
-                channels: vec![], trees: vec![], actor: None
-            };
-            drop(c.text_message_send(mailbox_message).await);
+            let mut mailbox_message = TextMessage::new();
+            mailbox_message.set_server(server.clone());
+            mailbox_message.set_users(vec![user]);
+            mailbox_message.set_text(mailbox_string(c.clone(), server, mailbox).await);
+            drop(c.text_message_send(&mailbox_message));
         }
         false
     })
